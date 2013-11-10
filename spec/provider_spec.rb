@@ -26,7 +26,7 @@ describe DPL::Provider do
 
     example "missing" do
       example_provider.should_receive(:gem).with("foo", "~> 1.4").and_raise(LoadError)
-      example_provider.context.should_receive(:shell).with('gem install foo -v "~> 1.4"')
+      example_provider.context.should_receive(:shell).with('gem install foo -v "~> 1.4"', retry: true)
       example_provider.requires("foo", :version => "~> 1.4")
     end
   end
@@ -40,7 +40,7 @@ describe DPL::Provider do
 
     example "missing" do
       example_provider.should_receive(:`).with("which foo").and_return("")
-      example_provider.context.should_receive(:shell).with("sudo pip install foo")
+      example_provider.context.should_receive(:shell).with("sudo pip install foo", retry: true)
       example_provider.pip("foo")
     end
   end
@@ -70,9 +70,9 @@ describe DPL::Provider do
 
   describe :cleanup do
     example do
-      provider.should_receive(:sha).and_return("sha")
-      provider.context.should_receive(:shell).with('git reset --hard sha')
-      provider.context.should_receive(:shell).with('git clean -dffqx -e .dpl')
+      provider.context.should_receive(:shell).with('mv .dpl ~/dpl')
+      provider.context.should_receive(:shell).with('git stash --all')
+      provider.context.should_receive(:shell).with('mv ~/dpl .dpl')
       provider.cleanup
     end
 
@@ -80,6 +80,19 @@ describe DPL::Provider do
       provider.options.should_receive(:[]).with(:skip_cleanup).and_return("true")
       provider.context.should_not_receive(:shell)
       provider.cleanup
+    end
+  end
+
+  describe :uncleanup do
+    example do
+      provider.context.should_receive(:shell).with('git stash pop')
+      provider.uncleanup
+    end
+
+    example "skip cleanup" do
+      provider.options.should_receive(:[]).with(:skip_cleanup).and_return("true")
+      provider.context.should_not_receive(:shell)
+      provider.uncleanup
     end
   end
 
@@ -107,15 +120,40 @@ describe DPL::Provider do
   end
 
   describe :shell do
-    example do
-      example_provider.should_receive(:system).with("command")
-      example_provider.shell("command")
+    describe 'on Travis' do
+      before(:each) do
+        stub_const("ENV", {'TRAVIS' => 'true'})
+      end
+
+      example "without any options" do
+        example_provider.should_receive(:system).with("command")
+        example_provider.shell("command")
+      end
+      example "with retry: true" do
+        example_provider.should_receive(:system).with("travis_retry command")
+        example_provider.shell("command", retry: true)
+      end
+    end
+
+    describe 'not on Travis' do
+      before(:each) do
+        stub_const("ENV", {'TRAVIS' => nil})
+      end
+
+      example "without any options" do
+        example_provider.should_receive(:system).with("command")
+        example_provider.shell("command")
+      end
+      example "with retry: true" do
+        example_provider.should_receive(:system).with("command")
+        example_provider.shell("command", retry: true)
+      end
     end
   end
 
   describe :npm_g do
     example do
-      example_provider.context.should_receive(:shell).with("npm install -g foo")
+      example_provider.context.should_receive(:shell).with("npm install -g foo", retry: true)
       example_provider.npm_g("foo")
     end
   end
